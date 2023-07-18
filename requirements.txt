@@ -7,3 +7,5 @@ pandas
 pdf2image
 pytesseract
 PyPDF2
+poppler
+poppler-utils
