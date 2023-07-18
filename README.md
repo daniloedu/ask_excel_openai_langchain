@@ -1,9 +1,6 @@
-# 📦 Streamlit App Starter Kit 
-```
-⬆️ (Replace above with your app's name)
-```
+# 💻 Ask your Excel file with OpenAI and Langchain
 
-Description of the app ...
+This application will allow you to upload an Excel File and make questions about it.
 
 ## Demo App
 
