@@ -3,3 +3,7 @@ langchain
 openai
 chromadb
 tiktoken
+pandas
+pdf2image
+pytesseract
+PyPDF2
