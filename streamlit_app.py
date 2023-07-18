@@ -1,54 +1,97 @@
 import streamlit as st
+import pandas as pd
+from pdf2image import convert_from_path
+import pytesseract
+from PyPDF2 import PdfReader
+from langchain.agents import create_csv_agent
 from langchain.llms import OpenAI
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.chains import RetrievalQA
-from langchain.document_loaders import UnstructuredExcelLoader
+import os
+from apikey import apikey
+from langchain.document_loaders import TextLoader
+from langchain.indexes import VectorstoreIndexCreator
+import time
 
-def generate_response(uploaded_file, openai_api_key, query_text):
-    # Load document if file is uploaded
-    if uploaded_file is not None:
-        # Load Excel file
-        loader = UnstructuredExcelLoader(uploaded_file, mode="elements")
-        documents = loader.load()
-        documents_text = [doc.page_content for doc in documents]
-        # Split documents into chunks
-        text_splitter = CharacterTextSplitter(chunk_size=1000, chunk_overlap=0)
-        texts = text_splitter.create_documents(documents_text)
-        # Select embeddings
-        embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-        # Create a vectorstore from documents
-        db = Chroma.from_documents(texts, embeddings)
-        # Create retriever interface
-        retriever = db.as_retriever()
-        # Create QA chain
-        qa = RetrievalQA.from_chain_type(llm=OpenAI(openai_api_key=openai_api_key), chain_type='stuff', retriever=retriever)
-        return qa.run(query_text)
 
-# Page title
-st.set_page_config(page_title='🦜🔗 Ask your Excel using OpenAI and Langchain')
-st.title('🦜🖥️🔗 Ask your Excel Spreadsheet App ')
-st.subheader('by Danilo Salazar at the Origo Team')
 
-# File upload
-uploaded_file = st.file_uploader('Upload an Excel file', type=['xlsx', 'xls'])
+os.environ['OPENAI_API_KEY'] = st.secrets["openai_api_key"]
 
-# Query text
-query_text = st.text_input('Enter your question:', placeholder = 'Please provide a short summary.', disabled=not uploaded_file)
+llm = OpenAI(temperature=0.1)
 
-# Form input and query
-result = []
-with st.form('myform', clear_on_submit=True):
-    openai_api_key = st.secrets["openai_api_key"]
-    #openai_api_key = st.text_input('OpenAI API Key', type='password', disabled=no (uploaded_file and query_text))
-    submitted = st.form_submit_button('Submit', disabled=not(uploaded_file and query_text))
-    if submitted:
-        with st.spinner('Calculating...'):
-            response = generate_response(uploaded_file, openai_api_key, query_text)
-            result.append(response)
-            del openai_api_key
+def pdf_to_text(pdf_path):
+    # Step 1: Convert PDF to images
+    images = convert_from_path(pdf_path)
 
-if len(result):
-    st.info(response)
+    with open('output.txt', 'w') as f:  # Open the text file in write mode
+        for i, image in enumerate(images):
+            # Save pages as images in the pdf
+            image_file = f'page{i}.jpg'
+            image.save(image_file, 'JPEG')
+
+            # Step 2: Use OCR to extract text from images
+            text = pytesseract.image_to_string(image_file)
+
+            f.write(text + '\n')  # Write the text to the file and add a newline for each page
+
+def load_csv_data(uploaded_file):
+    df = pd.read_csv(uploaded_file)
+    df.to_csv("uploaded_file.csv")
+    return df
+
+def load_txt_data(uploaded_file):
+    with open('uploaded_file.txt', 'w') as f:
+        f.write(uploaded_file.getvalue().decode())
+    return uploaded_file.getvalue().decode()
+
+def load_pdf_data(uploaded_file):
+    with open('uploaded_file.pdf', 'wb') as f:
+        f.write(uploaded_file.getbuffer())
+    pdf = PdfReader('uploaded_file.pdf')
+    text = ""
+    for page in pdf.pages:
+        text += page.extract_text()
+    pdf_to_text('uploaded_file.pdf')
+    return text
+
+def main():
+    st.title("Chat With Your Documents (csv, txt and pdf)")
+
+    file = st.file_uploader("Upload a file", type=["csv", "txt", "pdf"])
+
+
+    if file is not None:
+        if file.type == "text/csv":
+            doc = "csv"
+            data = load_csv_data(file)
+            agent = create_csv_agent(OpenAI(temperature=0), 'uploaded_file.csv', verbose=True)
+            st.dataframe(data)
+
+        elif file.type == "text/plain":
+            doc = "text"
+            data = load_txt_data(file)
+            loader = TextLoader('uploaded_file.txt')
+            index = VectorstoreIndexCreator().from_loaders([loader])
+
+        elif file.type == "application/pdf":
+            doc = "text"
+            data = load_pdf_data(file)
+            loader = TextLoader('output.txt')
+            index = VectorstoreIndexCreator().from_loaders([loader])
+
+        # do something with the data
+
+        question = st.text_input("Once uploaded, you can chat with your document. Enter your question here:")
+        submit_button = st.button('Submit')
+
+        if submit_button:
+            if doc == "text":
+                response = index.query(question)
+            else:
+                response = agent.run(question)
+
+            if response:
+                st.write(response)
+
+
+if __name__ == "__main__":
+    main()
 
